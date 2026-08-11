@@ -1,0 +1,32 @@
+profile = "ethernet_400gbase_fr4_100g_lane"
+architecture = "lpo"
+electrical_interface = "auto"
+
+[simulation]
+symbols = 8192
+tx_sps = 4
+seed = 20260811
+pattern = "prbs13q"
+discard_symbols = 256
+
+[receiver]
+processing_sps = 1.125
+bandwidth_hz = 3.0e10
+
+[dsp]
+ffe_taps = 15
+training_symbols = 2048
+dfe_enabled = false
+mlse_enabled = false
+volterra_enabled = false
+volterra_memory = 5
+volterra_order = 3
+
+[dsp.timing]
+enabled = true
+gain_mu = 1.0e-5
+gain_omega = 1.0e-8
+max_clock_offset_ppm = 300.0
+
+[output]
+directory = "output/400gbase_fr4_lpo"

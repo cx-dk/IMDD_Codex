@@ -1,0 +1,24 @@
+profile = "pcie_6_4_64gt_optical"
+architecture = "pcie_phy"
+electrical_interface = "auto"
+
+[simulation]
+symbols = 8192
+tx_sps = 4
+seed = 20260811
+pattern = "prbs13q"
+discard_symbols = 256
+
+[fiber]
+fiber_type = "G.652.D"
+length_m = 100.0
+attenuation_db_km = 0.5
+dispersion_ps_nm_km = 0.0
+nonlinear_enabled = false
+
+[receiver]
+processing_sps = 2.0
+
+[output]
+directory = "output/pcie_6_4_optical"
+

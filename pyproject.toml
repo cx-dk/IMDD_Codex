@@ -1,0 +1,18 @@
+[build-system]
+requires = ["setuptools>=69"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "imdd-sim"
+version = "0.1.0"
+description = "Modular CPU-only IMDD PAM4 simulation platform"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = ["numpy>=1.26"]
+
+[project.scripts]
+imdd-sim = "imdd_sim.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+

@@ -1,0 +1,30 @@
+profile = "ethernet_800gbase_fr4_200g_lane_d2_0"
+architecture = "retimed"
+electrical_interface = "auto"
+
+[simulation]
+symbols = 8192
+tx_sps = 4
+seed = 20260811
+pattern = "prbs13q"
+discard_symbols = 256
+
+[transmitter]
+modulator = "mzm"
+electrical_bandwidth_hz = 6.5e10
+
+[receiver]
+processing_sps = 2.0
+bandwidth_hz = 6.5e10
+adc_bits = 8
+
+[dsp]
+ffe_taps = 15
+training_symbols = 2048
+dfe_enabled = false
+mlse_enabled = false
+volterra_enabled = false
+
+[output]
+directory = "output/800gbase_fr4_200g_lane"
+
