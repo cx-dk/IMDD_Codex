@@ -1,0 +1,13 @@
+name = "IMDDPatterns"
+uuid = "91e2217d-8d43-4e2e-b59d-36d75c223944"
+authors = ["IMDD contributors"]
+version = "0.1.0"
+
+[compat]
+julia = "1.10"
+
+[extras]
+Test = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
+
+[targets]
+test = ["Test"]
