@@ -7,10 +7,20 @@ function usage(io::IO=stdout)
     println(io, "Usage: julia --project=julia julia/bin/generate_pattern.jl [options]")
     println(io, "  --pattern NAME    Pattern name (default: prbs13q)")
     println(io, "  --symbols N       Number of PAM4 symbols (default: 1024)")
-    println(io, "  --seed N          Integer seed (default: 1)")
+    println(io, "  --seed N          Integer seed, decimal/0x hex/0b binary (default: 1)")
     println(io, "  --custom BITS     Repeated custom bits, for example 001101")
-    println(io, "  --output PATH     Write CSV columns index,bit0,bit1,symbol")
+    println(io, "  --output PATH     Write CSV with symbol code and normalized level")
     println(io, "  --list            List supported pattern names")
+end
+
+function parse_integer(value::String)::Int
+    normalized = lowercase(strip(value))
+    if startswith(normalized, "0x")
+        return parse(Int, normalized[3:end]; base=16)
+    elseif startswith(normalized, "0b")
+        return parse(Int, normalized[3:end]; base=2)
+    end
+    return parse(Int, normalized)
 end
 
 function option_value(args::Vector{String}, index::Int, option::String)
@@ -36,10 +46,10 @@ function parse_args(args::Vector{String})
             options[:pattern] = option_value(args, index, argument)
             index += 2
         elseif argument == "--symbols"
-            options[:symbols] = parse(Int, option_value(args, index, argument))
+            options[:symbols] = parse_integer(option_value(args, index, argument))
             index += 2
         elseif argument == "--seed"
-            options[:seed] = parse(Int, option_value(args, index, argument))
+            options[:seed] = parse_integer(option_value(args, index, argument))
             index += 2
         elseif argument == "--custom"
             value = option_value(args, index, argument)
@@ -64,18 +74,24 @@ function main(args::Vector{String})
         options[:pattern], options[:symbols];
         seed=options[:seed], custom_bits=options[:custom_bits],
     )
+    symbol_codes = gray_map_pam4_codes(bits)
     symbols = gray_map_pam4(bits)
 
     if options[:output] === nothing
         preview_count = min(length(symbols), 16)
         println("pattern=$(options[:pattern]) symbols=$(length(symbols)) seed=$(options[:seed])")
-        println("bits:    ", join(bits[1:(2preview_count)]))
-        println("symbols: ", join(symbols[1:preview_count], ", "))
+        println("bits:    ", join(bits[1:(2 * preview_count)]))
+        println("codes:   ", join(symbol_codes[1:preview_count]))
+        println("levels:  ", join(symbols[1:preview_count], ", "))
     else
         open(options[:output], "w") do io
-            println(io, "index,bit0,bit1,symbol")
+            println(io, "index,bit0,bit1,symbol_code,normalized_level")
             for index in eachindex(symbols)
-                println(io, index, ',', bits[2index - 1], ',', bits[2index], ',', symbols[index])
+                println(
+                    io,
+                    index, ',', bits[2 * index - 1], ',', bits[2 * index], ',',
+                    symbol_codes[index], ',', symbols[index],
+                )
             end
         end
         println("wrote $(length(symbols)) symbols to $(options[:output])")
