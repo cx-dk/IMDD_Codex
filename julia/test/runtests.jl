@@ -1,4 +1,5 @@
 using SHA
+using Random
 using Test
 
 include(joinpath(@__DIR__, "..", "src", "IMDDPatterns.jl"))
@@ -87,3 +88,5 @@ end
     @test_throws ArgumentError GrayMapPam4(UInt8[0, 1, 0])
     @test_throws ArgumentError GrayMapPam4(UInt8[0, 2])
 end
+
+include("transmitter_tests.jl")
