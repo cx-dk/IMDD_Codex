@@ -3,7 +3,7 @@
 include(joinpath(@__DIR__, "..", "src", "IMDDPatterns.jl"))
 using .IMDDPatterns
 
-function usage(io::IO=stdout)
+function Usage(io::IO=stdout)
     println(io, "Usage: julia --project=julia julia/bin/generate_pattern.jl [options]")
     println(io, "  --pattern NAME    Pattern name (default: prbs13q)")
     println(io, "  --symbols N       Number of PAM4 symbols (default: 1024)")
@@ -13,7 +13,7 @@ function usage(io::IO=stdout)
     println(io, "  --list            List supported pattern names")
 end
 
-function parse_integer(value::String)::Int
+function ParseInteger(value::String)::Int
     normalized = lowercase(strip(value))
     if startswith(normalized, "0x")
         return parse(Int, normalized[3:end]; base=16)
@@ -23,12 +23,12 @@ function parse_integer(value::String)::Int
     return parse(Int, normalized)
 end
 
-function option_value(args::Vector{String}, index::Int, option::String)
+function OptionValue(args::Vector{String}, index::Int, option::String)
     index < length(args) || throw(ArgumentError("$option requires a value"))
     return args[index + 1]
 end
 
-function parse_args(args::Vector{String})
+function ParseArgs(args::Vector{String})
     options = Dict{Symbol, Any}(
         :pattern => "prbs13q", :symbols => 1024, :seed => 1,
         :custom_bits => nothing, :output => nothing,
@@ -37,29 +37,29 @@ function parse_args(args::Vector{String})
     while index <= length(args)
         argument = args[index]
         if argument in ("-h", "--help")
-            usage()
+            Usage()
             exit(0)
         elseif argument == "--list"
-            println.(supported_patterns())
+            println.(SupportedPatterns())
             exit(0)
         elseif argument == "--pattern"
-            options[:pattern] = option_value(args, index, argument)
+            options[:pattern] = OptionValue(args, index, argument)
             index += 2
         elseif argument == "--symbols"
-            options[:symbols] = parse_integer(option_value(args, index, argument))
+            options[:symbols] = ParseInteger(OptionValue(args, index, argument))
             index += 2
         elseif argument == "--seed"
-            options[:seed] = parse_integer(option_value(args, index, argument))
+            options[:seed] = ParseInteger(OptionValue(args, index, argument))
             index += 2
         elseif argument == "--custom"
-            value = option_value(args, index, argument)
+            value = OptionValue(args, index, argument)
             all(character -> character in ('0', '1'), value) ||
                 throw(ArgumentError("--custom may contain only 0 and 1"))
             options[:custom_bits] = [character == '1' ? 1 : 0 for character in value]
             options[:pattern] = "custom"
             index += 2
         elseif argument == "--output"
-            options[:output] = option_value(args, index, argument)
+            options[:output] = OptionValue(args, index, argument)
             index += 2
         else
             throw(ArgumentError("unknown option: $argument"))
@@ -68,14 +68,14 @@ function parse_args(args::Vector{String})
     return options
 end
 
-function main(args::Vector{String})
-    options = parse_args(args)
-    bits = pattern_bits(
+function RunCli(args::Vector{String})
+    options = ParseArgs(args)
+    bits = PatternBits(
         options[:pattern], options[:symbols];
         seed=options[:seed], custom_bits=options[:custom_bits],
     )
-    symbol_codes = gray_map_pam4_codes(bits)
-    symbols = gray_map_pam4(bits)
+    symbol_codes = GrayMapPam4Codes(bits)
+    symbols = GrayMapPam4(bits)
 
     if options[:output] === nothing
         preview_count = min(length(symbols), 16)
@@ -99,9 +99,9 @@ function main(args::Vector{String})
 end
 
 try
-    main(ARGS)
+    RunCli(ARGS)
 catch error
     println(stderr, "error: ", sprint(showerror, error))
-    usage(stderr)
+    Usage(stderr)
     exit(1)
 end

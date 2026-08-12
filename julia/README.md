@@ -25,12 +25,12 @@ Pkg.activate("julia")
 using IMDDPatterns
 
 # seed 的 bit i 对应寄存器 Si；最低有效位对应 S0。
-bits = pattern_bits("prbs13q", 1024; seed=0b1101010100000)
-codes = gray_map_pam4_codes(bits) # 标准 PAM4 symbol code 0, 1, 2, 3
-levels = gray_map_pam4(bits)      # 归一化电平 -1, -1/3, +1/3, +1
+bits = PatternBits("prbs13q", 1024; seed=0b1101010100000)
+codes = GrayMapPam4Codes(bits) # 标准 PAM4 symbol code 0, 1, 2, 3
+levels = GrayMapPam4(bits)      # 归一化电平 -1, -1/3, +1/3, +1
 
 # 完整的固定 SSPRQ 周期；seed 对 SSPRQ 无效。
-ssprq = ssprq_symbols()           # 65535 个 UInt8 symbol codes
+ssprq = SsprqSymbols()           # 65535 个 UInt8 symbol codes
 ```
 
 PRBS seed 必须非零，并且必须能够放入对应阶数的寄存器。函数不会静默截断
