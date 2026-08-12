@@ -23,14 +23,17 @@ from .metrics import (
     standard_comparison,
 )
 from .models.fiber import propagate_fiber, propagate_wdm_channels
+from .models.measured_response import apply_measured_s21
 from .models.optics import add_rin, cw_laser, eml_modulate, mzm_modulate
 from .models.receiver import direct_detect, quantize_adc
 from .models.signal import (
     agc_normalize_pam4,
     gray_map_pam4,
+    gray_map_pam4_codes,
     lowpass_fft,
     oversample_symbols,
     pattern_bits,
+    pattern_metadata,
     resample_linear,
 )
 from .profiles import get_profile
@@ -62,19 +65,35 @@ class SimulationResult:
 def _make_optical_lane(
     config: PlatformConfig,
     wavelength_nm: float,
-    seed: int,
-) -> tuple[ComplexArray, FloatArray, NDArray[np.uint8]]:
-    rng = np.random.default_rng(seed)
+    pattern_seed: int,
+    noise_seed: int,
+) -> tuple[ComplexArray, FloatArray, NDArray[np.uint8], dict[str, Any]]:
+    """Generate one PAM4 lane and convert its electrical drive to an optical field.
+
+    A configured measured transmitter S21 is applied to the DAC/driver waveform.
+    It either replaces the ideal electrical-bandwidth model or cascades with it.
+    """
+    rng = np.random.default_rng(noise_seed)
     symbol_rate_hz = config.symbol_rate_hz
     sample_rate_hz = symbol_rate_hz * config.simulation.tx_sps
-    bits = pattern_bits(config.simulation.pattern, config.simulation.symbols, seed)
+    bits = pattern_bits(
+        config.simulation.pattern,
+        config.simulation.symbols,
+        pattern_seed,
+    )
     symbols = gray_map_pam4(bits)
     drive = oversample_symbols(symbols, config.simulation.tx_sps)
-    drive = lowpass_fft(
-        drive,
-        sample_rate_hz,
-        config.transmitter.electrical_bandwidth_hz,
-    )
+    measured = config.transmitter.measured_s21
+    if not measured.enabled or not measured.replace_ideal_bandwidth:
+        drive = lowpass_fft(
+            drive,
+            sample_rate_hz,
+            config.transmitter.electrical_bandwidth_hz,
+        )
+    if measured.enabled:
+        drive, response_info = apply_measured_s21(drive, sample_rate_hz, measured)
+    else:
+        response_info = {"enabled": False}
     laser = cw_laser(
         drive.size,
         sample_rate_hz,
@@ -104,7 +123,7 @@ def _make_optical_lane(
             config.transmitter.extinction_ratio_db,
             config.transmitter.chirp,
         )
-    return field, symbols, bits
+    return field, symbols, bits, response_info
 
 
 def _propagate(
@@ -112,6 +131,7 @@ def _propagate(
     wavelengths_nm: tuple[float, ...],
     config: PlatformConfig,
 ) -> ComplexArray:
+    """Propagate one lane or a WDM batch through the configured fiber model."""
     sample_rate_hz = config.symbol_rate_hz * config.simulation.tx_sps
     kwargs = {
         "sample_rate_hz": sample_rate_hz,
@@ -141,6 +161,11 @@ def _propagate(
 
 
 def run_simulation(config: PlatformConfig) -> SimulationResult:
+    """Run a complete optical lane simulation and return metrics plus waveforms.
+
+    Processing order is TX pattern/driver/modulator, fiber, PIN/TIA/ADC, timing
+    recovery, trained equalization, optional DFE/MLSE, and finally BER/eye tests.
+    """
     config.validate()
     profile = get_profile(config.profile)
     interface = (
@@ -160,15 +185,22 @@ def run_simulation(config: PlatformConfig) -> SimulationResult:
     optical_fields = []
     transmitted_symbols = []
     transmitted_bits = []
+    transmitter_responses = []
     for lane, wavelength in enumerate(wavelengths_nm):
-        field, symbols, bits = _make_optical_lane(
+        pattern_seed = (
+            config.simulation.pattern_seed
+            + config.simulation.pattern_lane_seed_stride * lane
+        )
+        field, symbols, bits, response_info = _make_optical_lane(
             config,
             wavelength,
+            pattern_seed,
             config.simulation.seed + 1009 * lane,
         )
         optical_fields.append(field)
         transmitted_symbols.append(symbols)
         transmitted_bits.append(bits)
+        transmitter_responses.append(response_info)
     tx_fields = np.stack(optical_fields)
     rx_fields = _propagate(tx_fields, wavelengths_nm, config)
 
@@ -183,7 +215,19 @@ def run_simulation(config: PlatformConfig) -> SimulationResult:
         thermal_noise_a_sqrt_hz=config.receiver.thermal_noise_a_sqrt_hz,
         shot_noise_enabled=config.receiver.shot_noise_enabled,
         rng=rng,
+        filter_enabled=not (
+            config.receiver.measured_s21.enabled
+            and config.receiver.measured_s21.replace_ideal_bandwidth
+        ),
     )
+    if config.receiver.measured_s21.enabled:
+        analog, receiver_response = apply_measured_s21(
+            analog,
+            sample_rate_hz,
+            config.receiver.measured_s21,
+        )
+    else:
+        receiver_response = {"enabled": False}
     adc_full_rate = quantize_adc(
         analog,
         config.receiver.adc_bits,
@@ -328,9 +372,19 @@ def run_simulation(config: PlatformConfig) -> SimulationResult:
         ),
         "simulation_symbols": config.simulation.symbols,
         "seed": config.simulation.seed,
+        "pattern": config.simulation.pattern,
+        "pattern_definition": pattern_metadata(config.simulation.pattern),
+        "pattern_seed": config.simulation.pattern_seed,
+        "pattern_lane_seed_stride": config.simulation.pattern_lane_seed_stride,
+        "measured_s21": {
+            "transmitter": transmitter_responses[selected_lane],
+            "receiver": receiver_response,
+        },
     }
     waveforms: dict[str, NDArray[Any]] = {
         "tx_symbols": transmitted_symbols[selected_lane],
+        "tx_symbol_codes": gray_map_pam4_codes(transmitted_bits[selected_lane]),
+        "tx_bits": transmitted_bits[selected_lane],
         "tx_optical_power_w": np.abs(tx_fields[selected_lane]) ** 2,
         "rx_optical_power_w": np.abs(rx_fields[selected_lane]) ** 2,
         "rx_analog_v": analog,

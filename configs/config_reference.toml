@@ -1,0 +1,99 @@
+# IMDD PAM4 完整配置模板。未填写的字段使用 config.py 中的默认值。
+# Profile 可选值请运行: imdd-sim profiles
+# 电接口可选值请运行: imdd-sim interfaces
+profile = "ethernet_400gbase_fr4_100g_lane"
+architecture = "retimed"             # retimed | lpo | npo | lro | pcie_phy
+electrical_interface = "auto"         # auto，或 interfaces 命令显示的名称
+
+[simulation]
+symbols = 16384                       # 每条 WDM lane 的 PAM4 符号数，>= 512
+tx_sps = 4                            # 发射端采样率，整数且 >= 4 samples/symbol
+seed = 20260811                       # 激光器/RX噪声及Monte Carlo随机种子
+# IEEE: prbs9 | prbs13[q] | prbs31[q] | ssprq；工程激励还支持
+# prbs7 | prbs15 | random | zeros | ones | alternating | pam4_cycle
+pattern = "prbs13q"
+pattern_seed = 1                      # PRBS寄存器种子；整数bit i对应IEEE寄存器Si
+pattern_lane_seed_stride = 0          # 0: WDM各lane同序列；>0: 各lane种子递增
+discard_symbols = 256                 # 对齐后首尾各丢弃的瞬态符号数
+
+[transmitter]
+modulator = "mzm"                     # mzm | eml
+electrical_bandwidth_hz = 3.0e10      # 理想 TX -3 dB 带宽；可由实测 S21 替代
+drive_vpp = 1.0                       # MZM 驱动摆幅，Vpp；EML 模型不使用
+vpi_v = 2.0                           # MZM Vpi，V
+bias_phase_rad = 0.7853981633974483   # MZM 偏置相位；当前模型 pi/4 为正交点
+chirp = 0.0                           # MZM/EML 啁啾系数
+extinction_ratio_db = 6.0             # EML 消光比；MZM 模型不使用
+
+[transmitter.measured_s21]
+enabled = false                       # true 时加载驱动器/DAC/封装的实测前向响应
+path = "../measurements/tx.s2p"       # 相对路径以本 TOML 所在目录为基准
+file_format = "auto"                  # auto | touchstone | csv
+frequency_unit = "auto"               # CSV: auto | hz | khz | mhz | ghz
+magnitude_format = "db"               # CSV: db | linear
+phase_unit = "deg"                    # CSV: deg | rad
+extrapolation = "hold"                # hold | zero；测量频段之外如何处理
+normalize_dc = false                  # true: 去掉 DC 插损，仅保留频率形状
+remove_delay = false                  # true: 去掉线性相位对应的整体群时延
+replace_ideal_bandwidth = true        # true: 替代理想低通；false: 与理想低通级联
+
+[transmitter.laser]
+wavelength_nm = 1311.0                # 从 Profile 波长中选择最近的目标接收 lane
+power_dbm = 3.0                       # 单 lane CW 平均功率，dBm
+rin_db_hz = -145.0                    # 白色 RIN 密度，dB/Hz
+linewidth_hz = 0.0                    # 线宽，Hz；0 关闭相位噪声
+
+[fiber]
+fiber_type = "G.652.D"                # Profile 允许的 G.652.D/G.657.A1/A2
+length_m = 2000.0                     # m；超过 Profile reach 时标记标准参数被覆盖
+attenuation_db_km = 0.5               # dB/km
+dispersion_ps_nm_km = 0.0             # ps/(nm km)，应按工作波长填写
+dispersion_slope_ps_nm2_km = 0.092    # ps/(nm^2 km)，预留给波长相关色散
+nonlinear_enabled = false             # 开启 SSFM SPM；WDM 时可包含 XPM
+gamma_w_inv_km = 1.3                  # 1/(W km)
+ssfm_steps = 8                        # SSFM 步数，需做收敛性检查
+xpm_enabled = true                    # 多波长时启用 XPM；单 lane 无影响
+
+[receiver]
+processing_sps = 2.0                  # 仅支持 1.0 | 1.125 | 2.0
+adc_clock_offset_ppm = 0.0            # ADC 频偏，绝对值不能超过 MM 跟踪范围
+responsivity_a_w = 0.8                # PIN 响应度，A/W
+bandwidth_hz = 3.0e10                 # 理想 RX -3 dB 及噪声积分带宽，Hz
+tia_gain_ohm = 1000.0                 # TIA 跨阻，V/A
+thermal_noise_a_sqrt_hz = 8.0e-12     # 输入电流噪声密度，A/sqrt(Hz)
+shot_noise_enabled = true             # 是否加入散粒噪声
+adc_bits = 8                          # 理想均匀 ADC 位数
+adc_full_scale_v = 1.0                # ADC 差分满量程，Vpp
+adc_phase_ui = 0.5                    # 初始采样相位，UI
+
+# RX measured_s21 的字段和 TX 完全相同，可用于 PD/TIA/封装实测响应。
+# [receiver.measured_s21]
+# enabled = true
+# path = "../measurements/rx.s2p"
+# file_format = "auto"
+# extrapolation = "hold"
+# normalize_dc = false
+# remove_delay = false
+# replace_ideal_bandwidth = true
+
+[dsp]
+ffe_taps = 11                         # 正奇数，symbol-spaced FFE taps
+training_symbols = 2048               # 训练序列长度
+dfe_enabled = false                   # DFE 可 bypass
+dfe_taps = 3
+dfe_step = 0.002                      # DFE LMS 步长
+mlse_enabled = false                  # MLSE 可 bypass；CPU MVP 最大 4 个信道 taps
+mlse_channel_taps = [1.0]
+volterra_enabled = false              # true 时用 Volterra+FFE 替代线性 FFE
+volterra_memory = 5
+volterra_order = 3
+
+[dsp.timing]
+enabled = true                        # MM TED + 数字插值等效 ADC 相位/频率反馈
+gain_mu = 0.01                        # 相位环比例增益
+gain_omega = 0.0001                   # 频率环积分增益
+max_clock_offset_ppm = 300.0          # MM 频率控制范围
+
+[output]
+directory = "output"
+save_waveforms = false                # true 时额外写出压缩 NPZ 波形

@@ -1,3 +1,5 @@
+# 100G/lane FR4 example using a measured electrical response.
+# The bundled CSV is a measured-like regression fixture, not standards/VNA data.
 profile = "ethernet_400gbase_fr4_100g_lane"
 architecture = "retimed"
 electrical_interface = "auto"
@@ -18,7 +20,18 @@ drive_vpp = 1.0
 vpi_v = 2.0
 bias_phase_rad = 0.7853981633974483
 chirp = 0.0
-extinction_ratio_db = 6.0
+
+[transmitter.measured_s21]
+enabled = true
+path = "../measurements/example_tx_driver_s21.csv"
+file_format = "csv"
+frequency_unit = "auto"
+magnitude_format = "db"
+phase_unit = "deg"
+extrapolation = "hold"
+normalize_dc = false
+remove_delay = false
+replace_ideal_bandwidth = true
 
 [transmitter.laser]
 wavelength_nm = 1311.0
@@ -68,5 +81,5 @@ gain_omega = 0.0001
 max_clock_offset_ppm = 300.0
 
 [output]
-directory = "output"
-save_waveforms = false
+directory = "output/400gbase_fr4_measured_s21"
+save_waveforms = true

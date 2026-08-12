@@ -7,6 +7,8 @@ symbols = 8192
 tx_sps = 4
 seed = 20260811
 pattern = "prbs13q"
+pattern_seed = 1
+pattern_lane_seed_stride = 0
 discard_symbols = 256
 
 [fiber]
@@ -21,4 +23,3 @@ processing_sps = 2.0
 
 [output]
 directory = "output/pcie_6_4_optical"
-

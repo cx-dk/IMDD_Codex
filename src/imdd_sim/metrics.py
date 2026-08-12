@@ -27,7 +27,12 @@ def align_symbol_streams(
     transmitted: FloatArray,
     max_lag: int = 512,
 ) -> AlignedSymbols:
-    """Align two PAM4 symbol streams and account for optical polarity inversion."""
+    """Align received full-scale levels with normalized IEEE PAM4 TX levels.
+
+    The transmitter drives the behavioral modulator with levels in ``[-1, 1]``;
+    receiver DSP operates at conventional full-scale levels ``[-3,-1,+1,+3]``.
+    Scaling the known TX sequence here keeps both sides on one decision scale.
+    """
     limit = min(max_lag, max(1, received.size // 4), max(1, transmitted.size // 4))
     best: tuple[float, int, int, FloatArray, FloatArray] | None = None
     transmitted_scaled = transmitted * 3.0
@@ -57,6 +62,7 @@ def align_symbol_streams(
 
 
 def error_metrics(received: FloatArray, transmitted: FloatArray) -> dict[str, Any]:
+    """Compute SER and bit BER using the IEEE ``00,01,11,10`` Gray demapper."""
     size = min(received.size, transmitted.size)
     rx_indices = pam4_decisions(received[:size])
     tx_indices = pam4_decisions(transmitted[:size])
