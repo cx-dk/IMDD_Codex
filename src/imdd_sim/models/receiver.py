@@ -23,7 +23,14 @@ def direct_detect(
     thermal_noise_a_sqrt_hz: float,
     shot_noise_enabled: bool,
     rng: np.random.Generator,
+    filter_enabled: bool = True,
 ) -> FloatArray:
+    """Convert optical field to TIA voltage and add detector noise.
+
+    ``filter_enabled=False`` leaves the waveform unfiltered so a measured receiver
+    S21 can replace (rather than cascade with) the ideal low-pass response.  The
+    configured bandwidth still defines the integrated detector-noise bandwidth.
+    """
     optical_power = np.abs(field) ** 2
     photocurrent = responsivity_a_w * optical_power
     noise_bandwidth = min(bandwidth_hz, sample_rate_hz / 2.0)
@@ -38,7 +45,7 @@ def direct_detect(
         thermal_sigma**2 + shot_sigma**2
     )
     voltage = current * tia_gain_ohm
-    return lowpass_fft(voltage, sample_rate_hz, bandwidth_hz)
+    return lowpass_fft(voltage, sample_rate_hz, bandwidth_hz) if filter_enabled else voltage
 
 
 def quantize_adc(signal: FloatArray, bits: int, full_scale_v: float) -> FloatArray:
@@ -56,4 +63,3 @@ def quantize_adc(signal: FloatArray, bits: int, full_scale_v: float) -> FloatArr
     step = (maximum - minimum) / (levels - 1)
     clipped = np.clip(centered, minimum, maximum)
     return (np.round((clipped - minimum) / step) * step + minimum).astype(np.float64)
-

@@ -27,11 +27,23 @@ class ProfileConfigTests(unittest.TestCase):
         self.assertIsInstance(config, PlatformConfig)
         self.assertEqual(config.simulation.tx_sps, 4)
         self.assertEqual(config.receiver.processing_sps, 2.0)
+        self.assertEqual(config.simulation.pattern_seed, 1)
+
+    def test_measured_s21_path_is_resolved_from_config_directory(self) -> None:
+        config = load_config(ROOT / "configs" / "ethernet_400gbase_fr4_measured_s21.toml")
+        self.assertTrue(config.transmitter.measured_s21.enabled)
+        self.assertTrue(Path(config.transmitter.measured_s21.path).is_file())
 
     def test_tx_sps_is_validated(self) -> None:
         config = PlatformConfig()
         config.simulation.tx_sps = 2
         with self.assertRaisesRegex(ValueError, "at least 4"):
+            config.validate()
+
+    def test_transmitter_extinction_ratio_is_validated(self) -> None:
+        config = PlatformConfig()
+        config.transmitter.extinction_ratio_db = -1.0
+        with self.assertRaisesRegex(ValueError, "extinction_ratio_db"):
             config.validate()
 
     def test_architecture_selects_distinct_interfaces(self) -> None:

@@ -12,6 +12,7 @@ from .monte_carlo import run_monte_carlo
 from .pipeline import run_simulation
 from .profiles import list_profiles
 from .interfaces import list_electrical_interfaces
+from .models.signal import pattern_catalog
 from .report import write_json, write_simulation_result
 
 
@@ -20,6 +21,7 @@ def _parser() -> argparse.ArgumentParser:
     subparsers = parser.add_subparsers(dest="command", required=True)
     subparsers.add_parser("profiles", help="list available standard profiles")
     subparsers.add_parser("interfaces", help="list electrical interface standards")
+    subparsers.add_parser("patterns", help="list IEEE and engineering test patterns")
 
     run = subparsers.add_parser("run", help="run one end-to-end simulation")
     run.add_argument("--config", required=True, type=Path)
@@ -52,6 +54,9 @@ def main(argv: list[str] | None = None) -> int:
                     ensure_ascii=False,
                 )
             )
+            return 0
+        if args.command == "patterns":
+            print(json.dumps(pattern_catalog(), indent=2, ensure_ascii=False))
             return 0
         config = load_config(args.config)
         if args.command == "run":

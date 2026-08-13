@@ -52,12 +52,31 @@ def mzm_modulate(
     vpi_v: float,
     bias_phase_rad: float,
     chirp: float = 0.0,
+    *,
+    extinction_ratio_db: float = np.inf,
 ) -> ComplexArray:
+    """Apply a finite-extinction-ratio push-pull MZM field model.
+
+    A normalized electrical drive is converted to voltage with
+    ``drive_vpp * drive / 2``. Arm-amplitude imbalance is represented by
+    ``cos(phase) + 1j*sqrt(r_min)*sin(phase)``, where
+    ``r_min = 10**(-extinction_ratio_db/10)``. Consequently the maximum and
+    minimum optical power transmissions are exactly one and ``r_min``.
+    ``np.inf`` recovers the ideal cosine transfer used by earlier versions.
+
+    The optional chirp term adds an intensity-dependent phase and does not
+    change instantaneous optical power. The returned complex envelope has the
+    same shape and field units as ``laser_field``.
+    """
     if vpi_v <= 0:
         raise ValueError("vpi_v must be positive")
+    if np.isnan(extinction_ratio_db) or extinction_ratio_db < 0:
+        raise ValueError("extinction_ratio_db must be non-negative or infinity")
     voltage = 0.5 * drive_vpp * drive
     phase = bias_phase_rad + np.pi * voltage / (2.0 * vpi_v)
-    field = laser_field * np.cos(phase)
+    minimum_power_ratio = 10.0 ** (-extinction_ratio_db / 10.0)
+    field_transfer = np.cos(phase) + 1j * np.sqrt(minimum_power_ratio) * np.sin(phase)
+    field = laser_field * field_transfer
     if chirp:
         intensity = np.maximum(np.abs(field) ** 2, np.finfo(float).tiny)
         field = field * np.exp(0.5j * chirp * np.log(intensity / np.mean(intensity)))

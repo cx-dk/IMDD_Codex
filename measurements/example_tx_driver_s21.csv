@@ -1,0 +1,19 @@
+# Representative measured-like response for software verification only; replace with VNA data.
+frequency_ghz,magnitude_db,phase_deg
+0,-0.9,0
+5,-1.0,-21
+10,-1.2,-43
+15,-1.5,-65
+20,-1.9,-87
+25,-2.4,-109
+30,-3.1,-131
+35,-4.0,-153
+40,-5.2,-176
+45,-6.6,-199
+50,-8.3,-222
+55,-10.2,-245
+60,-12.4,-268
+70,-17.0,-315
+80,-22.0,-362
+90,-27.0,-410
+100,-32.0,-458
