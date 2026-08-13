@@ -1,22 +1,22 @@
 using Random
 
-# Register taps are numbered S0 through S(order-1). On every update the
-# feedback bit enters S0 and the old Si moves to S(i+1). The tuples below
-# implement the generator polynomials used by the named PRBS patterns.
-const PRBS_FEEDBACK_TAPS = Dict{Int, Tuple{Vararg{Int}}}(
-    7  => (5, 6),          # 1 + x^6 + x^7
-    9  => (4, 8),          # 1 + x^5 + x^9; IEEE 802.3 Table 68-6
-    13 => (0, 1, 11, 12),  # 1 + x + x^2 + x^12 + x^13; Figure 94-6
-    15 => (13, 14),        # 1 + x^14 + x^15
-    31 => (27, 30),        # 1 + x^28 + x^31; Figure 49-9
-)
-
-const SSPRQ_PERIOD_SYMBOLS = 65_535
-const SSPRQ_SECTIONS = (
-    (seed=0x00000002, length=10_924),
-    (seed=0x34013ff7, length=10_922),
-    (seed=0x0ccccccc, length=10_922),
-)
+"""Return the feedback tap indices for one supported PRBS order."""
+function PrbsFeedbackTaps(order::Integer)::Tuple{Vararg{Int}}
+    # Register taps are numbered S0 through S(order-1). On every update the
+    # feedback bit enters S0 and the old Si moves to S(i+1).
+    if order == 7
+        return (5, 6)          # 1 + x^6 + x^7
+    elseif order == 9
+        return (4, 8)          # 1 + x^5 + x^9; IEEE 802.3 Table 68-6
+    elseif order == 13
+        return (0, 1, 11, 12)  # 1 + x + x^2 + x^12 + x^13; Figure 94-6
+    elseif order == 15
+        return (13, 14)        # 1 + x^14 + x^15
+    elseif order == 31
+        return (27, 30)        # 1 + x^28 + x^31; Figure 49-9
+    end
+    throw(ArgumentError("unsupported PRBS order $order; choose [7, 9, 13, 15, 31]"))
+end
 
 """Return the pattern names accepted by [`PatternBits`](@ref)."""
 SupportedPatterns() = (
@@ -43,17 +43,15 @@ uses the inverted output required by IEEE 802.3 Figure 49-9; PRBS13 uses the
 four-tap generator in Figure 94-6. Supported orders are 7, 9, 13, 15, and 31.
 """
 function GeneratePrbs(order::Integer, bit_count::Integer; seed::Integer=1)::Vector{UInt8}
-    haskey(PRBS_FEEDBACK_TAPS, order) ||
-        throw(ArgumentError("unsupported PRBS order $order; choose $(sort!(collect(keys(PRBS_FEEDBACK_TAPS))))"))
     bit_count > 0 || throw(ArgumentError("bit_count must be positive"))
 
     width = Int(order)
+    taps = PrbsFeedbackTaps(width)
     mask = (UInt64(1) << width) - UInt64(1)
     0 < seed <= mask ||
         throw(ArgumentError("seed must be in 1:$(Int(mask)) for PRBS$order"))
 
     state = UInt64(seed)
-    taps = PRBS_FEEDBACK_TAPS[width]
     output = Vector{UInt8}(undef, bit_count)
     for index in eachindex(output)
         feedback = FeedbackBit(state, taps)
@@ -100,11 +98,16 @@ end
 
 function BuildSsprqPeriod()::Vector{UInt8}
     # IEEE 802.3-2022, 120.5.11.2.3 and Table 120-2.
+    ssprq_sections = (
+        (seed=0x00000002, length=10_924),
+        (seed=0x34013ff7, length=10_922),
+        (seed=0x0ccccccc, length=10_922),
+    )
     sequence_a = reduce(
         vcat,
         (
             GeneratePrbs(31, section.length; seed=section.seed)
-            for section in SSPRQ_SECTIONS
+            for section in ssprq_sections
         ),
     )
     @assert length(sequence_a) == 32_768
@@ -118,13 +121,9 @@ function BuildSsprqPeriod()::Vector{UInt8}
     sequence_3 = GrayMapPam4Codes(sequence_b[1:32_766])
     sequence_4 = UInt8.(3 .- GrayMapPam4Codes(sequence_b[(end - 32_767):end]))
     symbols = vcat(sequence_1, sequence_2, sequence_3, sequence_4)
-    @assert length(symbols) == SSPRQ_PERIOD_SYMBOLS
+    @assert length(symbols) == 65_535
     return symbols
 end
-
-# The standard SSPRQ period is fixed. Keep the private cached vector immutable
-# by returning copies/repetitions from the public API.
-const SSPRQ_SYMBOL_PERIOD = BuildSsprqPeriod()
 
 """
     SsprqSymbols(symbol_count=65535)
@@ -132,9 +131,12 @@ const SSPRQ_SYMBOL_PERIOD = BuildSsprqPeriod()
 Return IEEE 802.3-2022 Clause 120 SSPRQ symbol codes (`0` through `3`). The
 fixed 65535-symbol standard period is repeated or truncated to `symbol_count`.
 """
-function SsprqSymbols(symbol_count::Integer=SSPRQ_PERIOD_SYMBOLS)::Vector{UInt8}
+function SsprqSymbols(symbol_count::Integer=65_535)::Vector{UInt8}
     symbol_count > 0 || throw(ArgumentError("symbol_count must be positive"))
-    return RepeatToLength(SSPRQ_SYMBOL_PERIOD, symbol_count)
+    # Keep the fixed standard data local so pure `include` does not expose a
+    # large implementation constant in Main. Build only when SSPRQ is used.
+    symbol_period = BuildSsprqPeriod()
+    return RepeatToLength(symbol_period, symbol_count)
 end
 
 # SplitMix64 gives `random` an explicitly defined sequence that is reproducible

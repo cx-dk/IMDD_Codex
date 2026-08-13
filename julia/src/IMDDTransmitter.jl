@@ -19,11 +19,17 @@ function DbmToWatts(power_dbm::Real)::Float64
     return 1.0e-3 * 10.0^(Float64(power_dbm) / 10.0)
 end
 
-const NOISE_STREAM_TAGS = Dict{Symbol, UInt64}(
-    :dac => 0xdac0dac0dac0dac0,
-    :laser => 0x1a5e1a5e1a5e1a5e,
-    :rin => 0x71a071a071a071a0,
-)
+"""Return the fixed stream tag for a supported transmitter noise source."""
+function NoiseStreamTag(noise_source::Symbol)::UInt64
+    if noise_source == :dac
+        return UInt64(0xdac0dac0dac0dac0)
+    elseif noise_source == :laser
+        return UInt64(0x1a5e1a5e1a5e1a5e)
+    elseif noise_source == :rin
+        return UInt64(0x71a071a071a071a0)
+    end
+    throw(ArgumentError("noise_source must be :dac, :laser, or :rin"))
+end
 
 """
     CreateNoiseRng(parameters, noise_source)
@@ -46,11 +52,8 @@ function CreateNoiseRng(
     noise_source::Symbol,
 )::MersenneTwister
     noise_seed >= 0 || throw(ArgumentError("noise_seed must not be negative"))
-    haskey(NOISE_STREAM_TAGS, noise_source) || throw(ArgumentError(
-        "noise_source must be :dac, :laser, or :rin",
-    ))
     seed_value = UInt64(mod(noise_seed, big(1) << 64))
-    return MersenneTwister(xor(seed_value, NOISE_STREAM_TAGS[noise_source]))
+    return MersenneTwister(xor(seed_value, NoiseStreamTag(noise_source)))
 end
 
 function CreateNoiseRng(

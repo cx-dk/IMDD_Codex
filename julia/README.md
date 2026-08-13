@@ -218,6 +218,10 @@ julia --project=julia julia/bin/run_transmitter.jl `
 `PatternBits`、`RunTxDsp`、`CalculateOptimalTxGain` 和
 `RunImddTransmitter`，也可以在这些函数内设置断点。
 
+PRBS 抽头、SSPRQ 分段和噪声流标签等实现数据均封装在查询函数或使用它们的函数
+内部，不再以顶层 `const` 出现在 `Main` 的变量区。SSPRQ 固定周期只在实际调用
+`SsprqSymbols` 时生成，以保持全局变量区整洁。
+
 Julia 的 `struct` 不能在同一个作用域内重复定义，所以一个 REPL 会话中不要反复
 include `IMDDTransmitterConfig.jl` 或完整入口。修改普通函数后可以重新启动脚本；
 修改 `DefineTransmitterParameters()` 中的配置值后，可以只重新 include

@@ -4,6 +4,14 @@ using Test
 
 include(joinpath(@__DIR__, "..", "src", "IMDD.jl"))
 
+@testset "Plain include global namespace" begin
+    @test !isdefined(Main, :PRBS_FEEDBACK_TAPS)
+    @test !isdefined(Main, :SSPRQ_PERIOD_SYMBOLS)
+    @test !isdefined(Main, :SSPRQ_SECTIONS)
+    @test !isdefined(Main, :SSPRQ_SYMBOL_PERIOD)
+    @test !isdefined(Main, :NOISE_STREAM_TAGS)
+end
+
 function SymbolCodes(bits)
     return GrayMapPam4Codes(bits)
 end
