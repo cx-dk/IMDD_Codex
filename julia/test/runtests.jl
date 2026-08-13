@@ -1,7 +1,8 @@
 using SHA
 using Random
 using Test
-using IMDDPatterns
+
+include(joinpath(@__DIR__, "..", "src", "IMDD.jl"))
 
 function SymbolCodes(bits)
     return GrayMapPam4Codes(bits)

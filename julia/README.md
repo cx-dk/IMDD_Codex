@@ -24,12 +24,13 @@ IEEE 802.3 pattern：
 
 ## Julia API
 
+本工程采用普通源码文件和 `include`，不定义 Julia module。需要完整发射机时，
+只包含统一入口 `src/IMDD.jl`：
+
 ```julia
 using Pkg
 Pkg.activate("julia")
-Pkg.instantiate()
-
-using IMDDPatterns
+include("julia/src/IMDD.jl")
 
 # seed 的 bit i 对应寄存器 Si；最低有效位对应 S0。
 bits = PatternBits("prbs13q", 1024; seed=0b1101010100000)
@@ -39,6 +40,23 @@ levels = GrayMapPam4(bits)      # 归一化电平 -1, -1/3, +1/3, +1
 # 完整的固定 SSPRQ 周期；seed 对 SSPRQ 无效。
 ssprq = SsprqSymbols()           # 65535 个 UInt8 symbol codes
 ```
+
+只调试序列生成时，可以仅包含：
+
+```julia
+include("julia/src/IMDDPatterns.jl")
+```
+
+如果希望逐文件观察加载关系，完整发射机等价于：
+
+```julia
+include("julia/src/IMDDPatterns.jl")
+include("julia/src/IMDDTransmitterConfig.jl")
+include("julia/src/IMDDTransmitter.jl")
+include("julia/src/IMDDTransmitterSetup.jl")
+```
+
+依赖安装只需首次执行一次 `Pkg.instantiate()`；普通调试和运行不需要重复执行。
 
 PRBS seed 必须非零，并且必须能够放入对应阶数的寄存器。函数不会静默截断
 或替换非法 seed。
@@ -69,7 +87,7 @@ CSV 同时包含原始 bit pair、PAM4 symbol code 和归一化电平。
 `Clause_120_SSPRQ_sequence.csv` 完整序列的摘要校验。
 
 ```powershell
-julia --project=julia --startup-file=no --compiled-modules=no julia/test/runtests.jl
+julia --project=julia --startup-file=no julia/test/runtests.jl
 ```
 
 ## 单通道 IMDD 发射机
@@ -113,42 +131,31 @@ TxFIR 抽头是过采样速率下的 sample-spaced 系数。空抽头向量表�
 模型含义可以在 Julia 中分别查看 `?ImddDeviceParameters`、
 `?ImddDspParameters` 和 `?ImddTransmitterParameters`。
 
-总入口 `RunImddTransmitter` 仅返回 DAC 输出：
+`src/IMDDTransmitterSetup.jl` 提供普通函数 `DefineTransmitterParameters()`。
+所有仿真配置均在该函数体内显式定义；修改函数内的值后，其返回参数可以直接传给
+下一个处理函数：
 
 ```julia
 using Pkg
 Pkg.activate("julia")
-Pkg.instantiate()
-using IMDDPatterns
+include("julia/src/IMDD.jl")
 
-parameters = ImddTransmitterParameters()
+# 第一个普通函数定义并返回参数。
+parameters = DefineTransmitterParameters()
 
-# 全局噪声配置
-parameters.noise_seed = 20260811  # DAC、激光器线宽和 RIN 的统一主种子
+# 返回值直接输入第二个函数。
+dac_output = RunImddTransmitter(parameters)
+```
 
-# DSP / 仿真输入参数
-parameters.dsp.pattern = "prbs13q"
-parameters.dsp.symbol_count = 4096
-parameters.dsp.pattern_seed = 1
-parameters.dsp.symbol_rate_hz = 53.125e9
-parameters.dsp.samples_per_symbol = 4
-parameters.dsp.tx_fir_taps = Float64[]  # 空向量：默认矩形 TxFIR
-parameters.dsp.tx_nonlinear_compensation_enabled = true
-parameters.dsp.tx_nonlinear_coefficients = [1.0, 0.0, 0.1]
-parameters.dsp.tx_gain_mode = "adaptive"
+也可以在两步之间临时修改参数，适合交互式调试：
 
-# 固定增益方式：
-# parameters.dsp.tx_gain_mode = "fixed"
-# parameters.dsp.tx_fixed_gain = 0.8
+```julia
+parameters = DefineTransmitterParameters()
+parameters.dsp.symbol_count = 128
+parameters.dsp.tx_gain_mode = "fixed"
+parameters.dsp.tx_fixed_gain = 0.8
+parameters.device.dac_noise_rms = 0.001
 
-# DAC / Driver 器件参数
-parameters.device.dac_resolution_bits = 8
-parameters.device.dac_full_scale = 1.0
-parameters.device.dac_jitter_rms_ui = 0.0
-parameters.device.dac_noise_rms = 0.0
-parameters.device.electrical_bandwidth_hz = 30.0e9
-
-ValidateTransmitterParameters(parameters)
 dac_output = RunImddTransmitter(parameters)
 ```
 
@@ -205,14 +212,34 @@ julia --project=julia julia/bin/run_transmitter.jl `
 
 发射机测试单独位于 `julia/test/transmitter_tests.jl`，由总测试入口一并执行。
 
-## 模块加载
+## Include 调试方式
 
-交互式会话或 notebook 中只使用 `using IMDDPatterns`。不要反复执行
-`include("julia/src/IMDDPatterns.jl")`；后者会再次定义 `module IMDDPatterns`，
-从而产生 `WARNING: replacing module IMDDPatterns`，并可能留下旧类型或旧方法的
-引用。修改源码后可以重启 Julia，或在开发环境中使用 Revise：
+`src/IMDD.jl` 是普通 include 入口，不创建命名空间。加载后可直接在 REPL 中调用
+`PatternBits`、`RunTxDsp`、`CalculateOptimalTxGain` 和
+`RunImddTransmitter`，也可以在这些函数内设置断点。
+
+Julia 的 `struct` 不能在同一个作用域内重复定义，所以一个 REPL 会话中不要反复
+include `IMDDTransmitterConfig.jl` 或完整入口。修改普通函数后可以重新启动脚本；
+修改 `DefineTransmitterParameters()` 中的配置值后，可以只重新 include
+`IMDDTransmitterSetup.jl`，无需重新加载结构体或算法；修改参数结构体本身时才需要
+重新启动 Julia 会话。这与是否使用 module 无关，是 Julia 类型定义本身的限制。
+
+推荐从仓库根目录启动：
+
+```powershell
+julia --project=julia
+```
+
+随后在 REPL 中执行一次：
 
 ```julia
-using Revise
-using IMDDPatterns
+include("julia/src/IMDD.jl")
+```
+
+修改参数配置函数后，在同一 REPL 中刷新配置函数：
+
+```julia
+include("julia/src/IMDDTransmitterSetup.jl")
+parameters = DefineTransmitterParameters()
+dac_output = RunImddTransmitter(parameters)
 ```

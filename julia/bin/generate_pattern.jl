@@ -1,6 +1,6 @@
 #!/usr/bin/env julia
 
-using IMDDPatterns
+include(joinpath(@__DIR__, "..", "src", "IMDDPatterns.jl"))
 
 function Usage(io::IO=stdout)
     println(io, "Usage: julia --project=julia julia/bin/generate_pattern.jl [options]")

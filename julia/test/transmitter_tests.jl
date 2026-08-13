@@ -73,6 +73,24 @@ end
     @test_throws ArgumentError ValidateTransmitterParameters(invalid_gain_parameters)
 end
 
+@testset "Ordinary parameter definition function" begin
+    parameters_1 = DefineTransmitterParameters()
+    parameters_2 = DefineTransmitterParameters()
+
+    @test parameters_1 isa ImddTransmitterParameters
+    @test parameters_1.noise_seed == 20260811
+    @test parameters_1.dsp.symbol_count == 4096
+    @test parameters_1.device.dac_resolution_bits == 8
+    @test parameters_1 !== parameters_2
+    @test parameters_1.dsp !== parameters_2.dsp
+    @test parameters_1.device !== parameters_2.device
+    @test parameters_1.dsp.tx_fir_taps !== parameters_2.dsp.tx_fir_taps
+
+    parameters_1.dsp.symbol_count = 8
+    @test length(RunImddTransmitter(parameters_1)) ==
+        8 * parameters_1.dsp.samples_per_symbol
+end
+
 @testset "Independent transmitter DSP" begin
     symbols = [-1.0, -1 / 3, 1 / 3, 1.0]
     @test UpsampleSymbols(symbols, 2) == [-1.0, 0.0, -1 / 3, 0.0, 1 / 3, 0.0, 1.0, 0.0]

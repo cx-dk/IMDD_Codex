@@ -1,6 +1,6 @@
 #!/usr/bin/env julia
 
-using IMDDPatterns
+include(joinpath(@__DIR__, "..", "src", "IMDD.jl"))
 
 """Print transmitter CLI options and their defaults to `io`."""
 function Usage(io::IO=stdout)
