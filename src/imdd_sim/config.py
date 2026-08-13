@@ -65,7 +65,7 @@ class TransmitterConfig:
     vpi_v: float = 2.0  # MZM half-wave voltage, V.
     bias_phase_rad: float = 0.7853981633974483  # MZM quadrature is pi/4 in this model.
     chirp: float = 0.0  # Dimensionless MZM/EML chirp coefficient.
-    extinction_ratio_db: float = 6.0  # EML extinction ratio; ignored by MZM.
+    extinction_ratio_db: float = 6.0  # MZM/EML optical power extinction ratio.
     measured_s21: MeasuredS21Config = field(default_factory=MeasuredS21Config)
     laser: LaserConfig = field(default_factory=LaserConfig)
 
@@ -192,6 +192,13 @@ class PlatformConfig:
             raise ValueError("ADC clock offset exceeds the configured MM tracking range")
         if self.transmitter.modulator not in {"mzm", "eml"}:
             raise ValueError("transmitter.modulator must be 'mzm' or 'eml'")
+        if (
+            self.transmitter.extinction_ratio_db != self.transmitter.extinction_ratio_db
+            or self.transmitter.extinction_ratio_db < 0
+        ):
+            raise ValueError(
+                "transmitter.extinction_ratio_db must be non-negative or infinity"
+            )
         for location, response in (
             ("transmitter.measured_s21", self.transmitter.measured_s21),
             ("receiver.measured_s21", self.receiver.measured_s21),

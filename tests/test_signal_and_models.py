@@ -9,6 +9,7 @@ from imdd_sim.dsp.mlse import mlse_detect
 from imdd_sim.config import MeasuredS21Config
 from imdd_sim.models.fiber import propagate_fiber, propagate_wdm_channels
 from imdd_sim.models.measured_response import apply_measured_s21, load_measured_s21
+from imdd_sim.models.optics import mzm_modulate
 from imdd_sim.models.signal import (
     generate_prbs,
     gray_demap_pam4,
@@ -21,6 +22,54 @@ from imdd_sim.models.signal import (
 
 
 class SignalModelTests(unittest.TestCase):
+    def test_mzm_finite_extinction_ratio(self) -> None:
+        laser = np.ones(4, dtype=np.complex128)
+        drive = np.zeros(4, dtype=np.float64)
+        maximum = mzm_modulate(
+            laser,
+            drive,
+            drive_vpp=0.0,
+            vpi_v=2.0,
+            bias_phase_rad=0.0,
+            extinction_ratio_db=20.0,
+        )
+        minimum = mzm_modulate(
+            laser,
+            drive,
+            drive_vpp=0.0,
+            vpi_v=2.0,
+            bias_phase_rad=np.pi / 2,
+            extinction_ratio_db=20.0,
+        )
+        np.testing.assert_allclose(np.abs(maximum) ** 2, 1.0)
+        np.testing.assert_allclose(np.abs(minimum) ** 2, 0.01)
+
+    def test_mzm_infinite_extinction_matches_ideal_cosine(self) -> None:
+        laser = np.ones(4, dtype=np.complex128)
+        drive = np.array([-1.0, -1 / 3, 1 / 3, 1.0])
+        result = mzm_modulate(
+            laser,
+            drive,
+            drive_vpp=1.0,
+            vpi_v=2.0,
+            bias_phase_rad=np.pi / 4,
+            extinction_ratio_db=np.inf,
+        )
+        voltage = 0.5 * drive
+        expected = np.cos(np.pi / 4 + np.pi * voltage / 4.0)
+        np.testing.assert_allclose(result, expected)
+
+    def test_mzm_rejects_invalid_extinction_ratio(self) -> None:
+        with self.assertRaisesRegex(ValueError, "extinction_ratio_db"):
+            mzm_modulate(
+                np.ones(1, dtype=np.complex128),
+                np.zeros(1),
+                1.0,
+                2.0,
+                0.0,
+                extinction_ratio_db=-1.0,
+            )
+
     def test_gray_pam4_round_trip(self) -> None:
         bits = np.array([0, 0, 0, 1, 1, 1, 1, 0], dtype=np.uint8)
         symbols = gray_map_pam4(bits)

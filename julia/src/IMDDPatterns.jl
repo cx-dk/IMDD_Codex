@@ -5,8 +5,13 @@ using Random
 
 export GeneratePrbs, GrayMapPam4, GrayMapPam4Codes, PatternBits, PatternSymbols,
        SsprqSymbols, SupportedPatterns
-export AddRin, CwLaser, DbmToWatts, EmlModulate, LowpassFft, MzmModulate,
-       OversampleSymbols, RunImddTransmitter
+export AddRin, ApplyDacJitter, CwLaser, DbmToWatts, EmlModulate,
+       GenerateDacWaveform, LowpassFft, MzmModulate, OversampleSymbols,
+       QuantizeDac, RunImddTransmitter
+export ApplyTxFir, ApplyTxNonlinearCompensation, CalculateOptimalTxGain,
+       CreateNoiseRng, RunTxDsp, UpsampleSymbols
+export ImddDeviceParameters, ImddDspParameters, ImddTransmitterParameters,
+       ValidateTransmitterParameters
 
 # Register taps are numbered S0 through S(order-1). On every update the
 # feedback bit enters S0 and the old Si moves to S(i+1). The tuples below
@@ -244,6 +249,7 @@ function PatternSymbols(pattern::AbstractString, symbol_count::Integer; kwargs..
     return GrayMapPam4(PatternBits(pattern, symbol_count; kwargs...))
 end
 
+include("IMDDTransmitterConfig.jl")
 include("IMDDTransmitter.jl")
 
 end # module IMDDPatterns

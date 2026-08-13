@@ -1,38 +1,49 @@
 #!/usr/bin/env julia
 
-include(joinpath(@__DIR__, "..", "src", "IMDDPatterns.jl"))
-using .IMDDPatterns
+using IMDDPatterns
 
+"""Print transmitter CLI options and their defaults to `io`."""
 function Usage(io::IO=stdout)
     println(io, "Usage: julia --project=julia julia/bin/run_transmitter.jl [options]")
+    println(io, "  --noise-seed N      Master seed for all noise sources (default: 20260811)")
     println(io, "  --pattern NAME      Pattern name (default: prbs13q)")
     println(io, "  --symbols N         Number of PAM4 symbols (default: 1024)")
     println(io, "  --pattern-seed N    Pattern seed (default: 1)")
-    println(io, "  --noise-seed N      Laser/RIN noise seed (default: 20260811)")
     println(io, "  --symbol-rate HZ    Symbol rate in baud (default: 53.125e9)")
     println(io, "  --sps N             Transmitter samples per symbol (default: 4)")
+    println(io, "  --dac-bits N        DAC resolution in bits (default: 8)")
+    println(io, "  --dac-full-scale X  DAC normalized positive full scale (default: 1.0)")
+    println(io, "  --dac-jitter-ui X   DAC RMS jitter in UI (default: 0.0)")
+    println(io, "  --dac-noise-rms X   DAC normalized RMS output noise (default: 0.0)")
     println(io, "  --bandwidth HZ      Electrical -3 dB bandwidth (default: 30e9)")
-    println(io, "  --modulator NAME    mzm or eml (default: mzm)")
-    println(io, "  --output PATH       Write all sample-domain stages to CSV")
+    println(io, "  --tx-fir-taps LIST  Comma-separated sample-spaced FIR taps")
+    println(io, "  --nonlinear-coefficients LIST  Polynomial c1,c2,...; enables compensation")
+    println(io, "  --gain-mode MODE    DAC input gain: adaptive or fixed (default: adaptive)")
+    println(io, "  --fixed-gain X      Gain used in fixed mode (default: 1.0)")
+    println(io, "  --gain-search-span DB  Adaptive total search span (default: 24.0)")
+    println(io, "  --gain-search-points N Adaptive gain grid size (default: 129)")
+    println(io, "  --gain-max-samples N   Adaptive cost sample limit (default: 65536)")
+    println(io, "  --output PATH       Write DAC output samples to CSV")
 end
 
+"""Return the value following `option`, or throw when the value is missing."""
 function OptionValue(args::Vector{String}, index::Int, option::String)
     index < length(args) || throw(ArgumentError("$option requires a value"))
     return args[index + 1]
 end
 
+"""
+    ParseArgs(args)
+
+Parse command-line text directly into one `ImddTransmitterParameters` object.
+DSP options update `parameters.dsp`; DAC and modulator options update
+`parameters.device`; `--noise-seed` updates the top-level master seed. The
+output CSV path is returned separately because it is an application output
+setting rather than a transmitter model parameter.
+"""
 function ParseArgs(args::Vector{String})
-    options = Dict{Symbol, Any}(
-        :pattern => "prbs13q",
-        :symbols => 1024,
-        :pattern_seed => 1,
-        :noise_seed => 20260811,
-        :symbol_rate_hz => 53.125e9,
-        :samples_per_symbol => 4,
-        :electrical_bandwidth_hz => 30.0e9,
-        :modulator => "mzm",
-        :output => nothing,
-    )
+    parameters = ImddTransmitterParameters()
+    output_path = nothing
 
     index = 1
     while index <= length(args)
@@ -41,73 +52,107 @@ function ParseArgs(args::Vector{String})
             Usage()
             exit(0)
         elseif argument == "--pattern"
-            options[:pattern] = OptionValue(args, index, argument)
+            parameters.dsp.pattern = OptionValue(args, index, argument)
         elseif argument == "--symbols"
-            options[:symbols] = parse(Int, OptionValue(args, index, argument))
+            parameters.dsp.symbol_count = parse(Int, OptionValue(args, index, argument))
         elseif argument == "--pattern-seed"
-            options[:pattern_seed] = parse(Int, OptionValue(args, index, argument))
+            parameters.dsp.pattern_seed = parse(Int, OptionValue(args, index, argument))
         elseif argument == "--noise-seed"
-            options[:noise_seed] = parse(Int, OptionValue(args, index, argument))
+            parameters.noise_seed = parse(Int, OptionValue(args, index, argument))
         elseif argument == "--symbol-rate"
-            options[:symbol_rate_hz] = parse(Float64, OptionValue(args, index, argument))
+            parameters.dsp.symbol_rate_hz = parse(Float64, OptionValue(args, index, argument))
         elseif argument == "--sps"
-            options[:samples_per_symbol] = parse(Int, OptionValue(args, index, argument))
+            parameters.dsp.samples_per_symbol = parse(Int, OptionValue(args, index, argument))
+        elseif argument == "--dac-bits"
+            parameters.device.dac_resolution_bits = parse(Int, OptionValue(args, index, argument))
+        elseif argument == "--dac-full-scale"
+            parameters.device.dac_full_scale = parse(Float64, OptionValue(args, index, argument))
+        elseif argument == "--dac-jitter-ui"
+            parameters.device.dac_jitter_rms_ui = parse(Float64, OptionValue(args, index, argument))
+        elseif argument == "--dac-noise-rms"
+            parameters.device.dac_noise_rms = parse(Float64, OptionValue(args, index, argument))
         elseif argument == "--bandwidth"
-            options[:electrical_bandwidth_hz] = parse(Float64, OptionValue(args, index, argument))
-        elseif argument == "--modulator"
-            options[:modulator] = OptionValue(args, index, argument)
+            parameters.device.electrical_bandwidth_hz =
+                parse(Float64, OptionValue(args, index, argument))
+        elseif argument == "--tx-fir-taps"
+            tap_text = split(OptionValue(args, index, argument), ',')
+            parameters.dsp.tx_fir_taps = parse.(Float64, strip.(tap_text))
+        elseif argument == "--nonlinear-coefficients"
+            coefficient_text = split(OptionValue(args, index, argument), ',')
+            parameters.dsp.tx_nonlinear_coefficients =
+                parse.(Float64, strip.(coefficient_text))
+            parameters.dsp.tx_nonlinear_compensation_enabled = true
+        elseif argument == "--gain-mode"
+            parameters.dsp.tx_gain_mode = OptionValue(args, index, argument)
+        elseif argument == "--fixed-gain"
+            parameters.dsp.tx_fixed_gain =
+                parse(Float64, OptionValue(args, index, argument))
+        elseif argument == "--gain-search-span"
+            parameters.dsp.tx_gain_search_span_db =
+                parse(Float64, OptionValue(args, index, argument))
+        elseif argument == "--gain-search-points"
+            parameters.dsp.tx_gain_search_points =
+                parse(Int, OptionValue(args, index, argument))
+        elseif argument == "--gain-max-samples"
+            parameters.dsp.tx_gain_max_samples =
+                parse(Int, OptionValue(args, index, argument))
         elseif argument == "--output"
-            options[:output] = OptionValue(args, index, argument)
+            output_path = OptionValue(args, index, argument)
         else
             throw(ArgumentError("unknown option: $argument"))
         end
         index += 2
     end
-    return options
+    return parameters, output_path
 end
 
-function WriteCsv(path::AbstractString, result)
+"""
+    WriteCsv(path, result)
+
+Write the DAC output vector from `RunImddTransmitter`. `symbol_index` identifies
+the source symbol interval associated with each oversampled DAC sample.
+"""
+function WriteCsv(
+    path::AbstractString,
+    dac_output::AbstractVector{<:Real},
+    samples_per_symbol::Integer,
+)
     open(path, "w") do io
-        println(
-            io,
-            "sample_index,symbol_index,drive_raw,drive_filtered,laser_real,laser_imag,field_real,field_imag,optical_power_w",
-        )
-        for sample_index in eachindex(result.optical_field)
-            symbol_index = div(sample_index - 1, result.samples_per_symbol) + 1
-            println(
-                io,
-                sample_index, ',', symbol_index, ',',
-                result.electrical_drive_raw[sample_index], ',',
-                result.electrical_drive[sample_index], ',',
-                real(result.laser_field[sample_index]), ',',
-                imag(result.laser_field[sample_index]), ',',
-                real(result.optical_field[sample_index]), ',',
-                imag(result.optical_field[sample_index]), ',',
-                result.optical_power_w[sample_index],
-            )
+        println(io, "sample_index,symbol_index,dac_output")
+        for sample_index in eachindex(dac_output)
+            symbol_index = div(sample_index - 1, samples_per_symbol) + 1
+            println(io, sample_index, ',', symbol_index, ',', dac_output[sample_index])
         end
     end
 end
 
+"""Run the CLI, print a compact configuration summary, and optionally export CSV."""
 function RunCli(args::Vector{String})
-    options = ParseArgs(args)
-    result = RunImddTransmitter(
-        options[:pattern],
-        options[:symbols];
-        pattern_seed=options[:pattern_seed],
-        noise_seed=options[:noise_seed],
-        symbol_rate_hz=options[:symbol_rate_hz],
-        samples_per_symbol=options[:samples_per_symbol],
-        electrical_bandwidth_hz=options[:electrical_bandwidth_hz],
-        modulator=options[:modulator],
-    )
+    parameters, output_path = ParseArgs(args)
+    dac_output = RunImddTransmitter(parameters)
+    dsp = parameters.dsp
+    device = parameters.device
+    sample_rate_hz = dsp.symbol_rate_hz * dsp.samples_per_symbol
 
-    println("pattern=$(options[:pattern]) symbols=$(length(result.symbols))")
-    println("modulator=$(result.modulator) sample_rate_hz=$(result.sample_rate_hz)")
-    println("mean_launch_power_w=$(sum(result.optical_power_w) / length(result.optical_power_w))")
-    if options[:output] !== nothing
-        WriteCsv(options[:output], result)
-        println("wrote $(length(result.optical_field)) samples to $(options[:output])")
+    println("noise_seed=$(parameters.noise_seed)")
+    println("pattern=$(dsp.pattern) symbols=$(dsp.symbol_count)")
+    println("samples=$(length(dac_output)) sample_rate_hz=$sample_rate_hz")
+    println(
+        "dac_bits=$(device.dac_resolution_bits) " *
+        "dac_full_scale=$(device.dac_full_scale) " *
+        "dac_jitter_rms_ui=$(device.dac_jitter_rms_ui) " *
+        "dac_noise_rms=$(device.dac_noise_rms)",
+    )
+    println(
+        "nonlinear_compensation=$(dsp.tx_nonlinear_compensation_enabled) " *
+        "gain_mode=$(lowercase(strip(dsp.tx_gain_mode))) " *
+        "fixed_gain=$(dsp.tx_fixed_gain)",
+    )
+    rms_output = sqrt(sum(abs2, dac_output) / length(dac_output))
+    println("dac_min=$(minimum(dac_output)) dac_max=$(maximum(dac_output)) dac_rms=$rms_output")
+    if output_path !== nothing
+        WriteCsv(output_path, dac_output, dsp.samples_per_symbol)
+        println("wrote $(length(dac_output)) samples to $output_path")
     end
 end
 

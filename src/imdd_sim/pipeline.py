@@ -115,6 +115,7 @@ def _make_optical_lane(
             config.transmitter.vpi_v,
             config.transmitter.bias_phase_rad,
             config.transmitter.chirp,
+            extinction_ratio_db=config.transmitter.extinction_ratio_db,
         )
     else:
         field = eml_modulate(

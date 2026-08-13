@@ -40,6 +40,12 @@ class ProfileConfigTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "at least 4"):
             config.validate()
 
+    def test_transmitter_extinction_ratio_is_validated(self) -> None:
+        config = PlatformConfig()
+        config.transmitter.extinction_ratio_db = -1.0
+        with self.assertRaisesRegex(ValueError, "extinction_ratio_db"):
+            config.validate()
+
     def test_architecture_selects_distinct_interfaces(self) -> None:
         lpo = select_electrical_interface("lpo", 100.0, "ethernet")
         npo = select_electrical_interface("npo", 100.0, "ethernet")

@@ -23,7 +23,7 @@ drive_vpp = 1.0                       # MZM 驱动摆幅，Vpp；EML 模型不�
 vpi_v = 2.0                           # MZM Vpi，V
 bias_phase_rad = 0.7853981633974483   # MZM 偏置相位；当前模型 pi/4 为正交点
 chirp = 0.0                           # MZM/EML 啁啾系数
-extinction_ratio_db = 6.0             # EML 消光比；MZM 模型不使用
+extinction_ratio_db = 6.0             # MZM/EML 光功率消光比，dB
 
 [transmitter.measured_s21]
 enabled = false                       # true 时加载驱动器/DAC/封装的实测前向响应
