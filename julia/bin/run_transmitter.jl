@@ -16,6 +16,11 @@ function Usage(io::IO=stdout)
     println(io, "  --dac-jitter-ui X   DAC RMS jitter in UI (default: 0.0)")
     println(io, "  --dac-noise-rms X   DAC normalized RMS output noise (default: 0.0)")
     println(io, "  --bandwidth HZ      Electrical -3 dB bandwidth (default: 30e9)")
+    println(io, "  --laser-power-dbm X CW laser power in dBm (default: 3.0)")
+    println(io, "  --linewidth-hz X    Laser linewidth in Hz (default: 0.0)")
+    println(io, "  --rin-db-hz X       RIN density in dB/Hz (default: -145.0)")
+    println(io, "  --modulator NAME    Optical modulator: mzm or eml (default: mzm)")
+    println(io, "  --extinction-ratio-db X  Modulator extinction ratio (default: 6.0)")
     println(io, "  --tx-fir-taps LIST  Comma-separated sample-spaced FIR taps")
     println(io, "  --nonlinear-coefficients LIST  Polynomial c1,c2,...; enables compensation")
     println(io, "  --gain-mode MODE    DAC input gain: adaptive or fixed (default: adaptive)")
@@ -23,7 +28,7 @@ function Usage(io::IO=stdout)
     println(io, "  --gain-search-span DB  Adaptive total search span (default: 24.0)")
     println(io, "  --gain-search-points N Adaptive gain grid size (default: 129)")
     println(io, "  --gain-max-samples N   Adaptive cost sample limit (default: 65536)")
-    println(io, "  --output PATH       Write DAC output samples to CSV")
+    println(io, "  --output PATH       Write final optical field samples to CSV")
 end
 
 """Return the value following `option`, or throw when the value is missing."""
@@ -74,6 +79,20 @@ function ParseArgs(args::Vector{String})
         elseif argument == "--bandwidth"
             parameters.device.electrical_bandwidth_hz =
                 parse(Float64, OptionValue(args, index, argument))
+        elseif argument == "--laser-power-dbm"
+            parameters.device.laser_power_dbm =
+                parse(Float64, OptionValue(args, index, argument))
+        elseif argument == "--linewidth-hz"
+            parameters.device.laser_linewidth_hz =
+                parse(Float64, OptionValue(args, index, argument))
+        elseif argument == "--rin-db-hz"
+            parameters.device.rin_db_hz =
+                parse(Float64, OptionValue(args, index, argument))
+        elseif argument == "--modulator"
+            parameters.device.modulator = OptionValue(args, index, argument)
+        elseif argument == "--extinction-ratio-db"
+            parameters.device.extinction_ratio_db =
+                parse(Float64, OptionValue(args, index, argument))
         elseif argument == "--tx-fir-taps"
             tap_text = split(OptionValue(args, index, argument), ',')
             parameters.dsp.tx_fir_taps = parse.(Float64, strip.(tap_text))
@@ -109,19 +128,25 @@ end
 """
     WriteCsv(path, result)
 
-Write the DAC output vector from `RunImddTransmitter`. `symbol_index` identifies
-the source symbol interval associated with each oversampled DAC sample.
+Write the final complex optical field from `RunImddTransmitter`.
+`symbol_index` identifies the source symbol interval associated with each
+oversampled optical sample. Optical power is `abs2(optical_field)` in watts.
 """
 function WriteCsv(
     path::AbstractString,
-    dac_output::AbstractVector{<:Real},
+    optical_field::AbstractVector{<:Complex},
     samples_per_symbol::Integer,
 )
     open(path, "w") do io
-        println(io, "sample_index,symbol_index,dac_output")
-        for sample_index in eachindex(dac_output)
+        println(io, "sample_index,symbol_index,field_real,field_imag,optical_power_w")
+        for sample_index in eachindex(optical_field)
             symbol_index = div(sample_index - 1, samples_per_symbol) + 1
-            println(io, sample_index, ',', symbol_index, ',', dac_output[sample_index])
+            field_sample = optical_field[sample_index]
+            println(
+                io,
+                sample_index, ',', symbol_index, ',',
+                real(field_sample), ',', imag(field_sample), ',', abs2(field_sample),
+            )
         end
     end
 end
@@ -129,14 +154,14 @@ end
 """Run the CLI, print a compact configuration summary, and optionally export CSV."""
 function RunCli(args::Vector{String})
     parameters, output_path = ParseArgs(args)
-    dac_output = RunImddTransmitter(parameters)
+    optical_field = RunImddTransmitter(parameters)
     dsp = parameters.dsp
     device = parameters.device
     sample_rate_hz = dsp.symbol_rate_hz * dsp.samples_per_symbol
 
     println("noise_seed=$(parameters.noise_seed)")
     println("pattern=$(dsp.pattern) symbols=$(dsp.symbol_count)")
-    println("samples=$(length(dac_output)) sample_rate_hz=$sample_rate_hz")
+    println("samples=$(length(optical_field)) sample_rate_hz=$sample_rate_hz")
     println(
         "dac_bits=$(device.dac_resolution_bits) " *
         "dac_full_scale=$(device.dac_full_scale) " *
@@ -148,11 +173,22 @@ function RunCli(args::Vector{String})
         "gain_mode=$(lowercase(strip(dsp.tx_gain_mode))) " *
         "fixed_gain=$(dsp.tx_fixed_gain)",
     )
-    rms_output = sqrt(sum(abs2, dac_output) / length(dac_output))
-    println("dac_min=$(minimum(dac_output)) dac_max=$(maximum(dac_output)) dac_rms=$rms_output")
+    println(
+        "laser_power_dbm=$(device.laser_power_dbm) " *
+        "linewidth_hz=$(device.laser_linewidth_hz) " *
+        "rin_db_hz=$(device.rin_db_hz) " *
+        "modulator=$(lowercase(strip(device.modulator)))",
+    )
+    optical_power_w = abs2.(optical_field)
+    mean_power_w = sum(optical_power_w) / length(optical_power_w)
+    println(
+        "optical_power_min_w=$(minimum(optical_power_w)) " *
+        "optical_power_max_w=$(maximum(optical_power_w)) " *
+        "optical_power_mean_w=$mean_power_w",
+    )
     if output_path !== nothing
-        WriteCsv(output_path, dac_output, dsp.samples_per_symbol)
-        println("wrote $(length(dac_output)) samples to $output_path")
+        WriteCsv(output_path, optical_field, dsp.samples_per_symbol)
+        println("wrote $(length(optical_field)) samples to $output_path")
     end
 end
 

@@ -87,7 +87,9 @@ end
     @test parameters_1.dsp.tx_fir_taps !== parameters_2.dsp.tx_fir_taps
 
     parameters_1.dsp.symbol_count = 8
-    @test length(RunImddTransmitter(parameters_1)) ==
+    optical_field = RunImddTransmitter(parameters_1)
+    @test optical_field isa Vector{ComplexF64}
+    @test length(optical_field) ==
         8 * parameters_1.dsp.samples_per_symbol
 end
 
@@ -244,7 +246,8 @@ end
     parameters.noise_seed = 19
     parameters.dsp.samples_per_symbol = 4
     parameters.device.electrical_bandwidth_hz = 30.0e9
-    dac_output = RunImddTransmitter(parameters)
+    parameters.device.rin_db_hz = -Inf
+    optical_field = RunImddTransmitter(parameters)
 
     tx_dsp_output = RunTxDsp(parameters.dsp)
     adaptive_gain = CalculateOptimalTxGain(
@@ -255,7 +258,7 @@ end
         search_points=parameters.dsp.tx_gain_search_points,
         max_samples=parameters.dsp.tx_gain_max_samples,
     )
-    expected_output = LowpassFft(
+    expected_dac_output = LowpassFft(
         QuantizeDac(
             adaptive_gain .* tx_dsp_output,
             parameters.device.dac_resolution_bits;
@@ -265,29 +268,43 @@ end
         parameters.device.electrical_bandwidth_hz;
         order=parameters.device.filter_order,
     )
-    @test dac_output isa Vector{Float64}
-    @test length(dac_output) == 64
-    @test dac_output ≈ expected_output
+    expected_laser_field = fill(
+        ComplexF64(sqrt(DbmToWatts(parameters.device.laser_power_dbm))),
+        length(expected_dac_output),
+    )
+    expected_optical_field = MzmModulate(
+        expected_laser_field,
+        expected_dac_output,
+        parameters.device.drive_vpp,
+        parameters.device.vpi_v,
+        parameters.device.bias_phase_rad,
+        parameters.device.extinction_ratio_db,
+        parameters.device.chirp,
+    )
+    @test optical_field isa Vector{ComplexF64}
+    @test length(optical_field) == 64
+    @test optical_field ≈ expected_optical_field
+    @test RunTxDevice(tx_dsp_output, parameters) ≈ optical_field
 
     noisy_parameters = deepcopy(parameters)
     noisy_parameters.device.dac_noise_rms = 0.002
     repeated_result = RunImddTransmitter(noisy_parameters)
     repeated_result_2 = RunImddTransmitter(noisy_parameters)
     @test repeated_result == repeated_result_2
-    @test repeated_result != dac_output
+    @test repeated_result != optical_field
     changed_seed_parameters = deepcopy(noisy_parameters)
     changed_seed_parameters.noise_seed += 1
     @test RunImddTransmitter(changed_seed_parameters) != repeated_result
 
     custom_fir_parameters = deepcopy(parameters)
     custom_fir_parameters.dsp.tx_fir_taps = [1.0, 0.5]
-    @test RunImddTransmitter(custom_fir_parameters) != dac_output
+    @test RunImddTransmitter(custom_fir_parameters) != optical_field
 
     fixed_gain_parameters = deepcopy(parameters)
     fixed_gain_parameters.dsp.tx_gain_mode = "fixed"
     fixed_gain_parameters.dsp.tx_fixed_gain = 0.5
     fixed_gain_output = RunImddTransmitter(fixed_gain_parameters)
-    fixed_gain_expected = LowpassFft(
+    fixed_gain_dac_expected = LowpassFft(
         QuantizeDac(
             0.5 .* RunTxDsp(fixed_gain_parameters.dsp),
             fixed_gain_parameters.device.dac_resolution_bits;
@@ -298,13 +315,40 @@ end
         fixed_gain_parameters.device.electrical_bandwidth_hz;
         order=fixed_gain_parameters.device.filter_order,
     )
+    fixed_gain_laser = fill(
+        ComplexF64(sqrt(DbmToWatts(fixed_gain_parameters.device.laser_power_dbm))),
+        length(fixed_gain_dac_expected),
+    )
+    fixed_gain_expected = MzmModulate(
+        fixed_gain_laser,
+        fixed_gain_dac_expected,
+        fixed_gain_parameters.device.drive_vpp,
+        fixed_gain_parameters.device.vpi_v,
+        fixed_gain_parameters.device.bias_phase_rad,
+        fixed_gain_parameters.device.extinction_ratio_db,
+        fixed_gain_parameters.device.chirp,
+    )
     @test fixed_gain_output ≈ fixed_gain_expected
-    @test fixed_gain_output != dac_output
+    @test fixed_gain_output != optical_field
 
     nonlinear_parameters = deepcopy(parameters)
     nonlinear_parameters.dsp.tx_nonlinear_compensation_enabled = true
     nonlinear_parameters.dsp.tx_nonlinear_coefficients = [1.0, 0.0, 0.2]
-    @test RunImddTransmitter(nonlinear_parameters) != dac_output
+    @test RunImddTransmitter(nonlinear_parameters) != optical_field
+
+    eml_parameters = deepcopy(parameters)
+    eml_parameters.device.modulator = "eml"
+    eml_output = RunImddTransmitter(eml_parameters)
+    @test eml_output == EmlModulate(
+        expected_laser_field,
+        expected_dac_output,
+        eml_parameters.device.extinction_ratio_db,
+        eml_parameters.device.chirp,
+    )
+    @test eml_output != optical_field
+
+    @test_throws ArgumentError RunTxDevice(Float64[], parameters)
+    @test_throws ArgumentError RunTxDevice([NaN], parameters)
 
     invalid_parameters = ImddTransmitterParameters()
     invalid_parameters.dsp.symbol_count = 0

@@ -708,35 +708,35 @@ function EmlModulate(
 end
 
 """
-    RunImddTransmitter(parameters)
+    RunTxDevice(tx_dsp_output, parameters)
 
-Run the digital/electrical front end of one IMDD PAM4 transmitter lane from a
-unified `ImddTransmitterParameters` object.
+Run the complete device section for an oversampled transmitter DSP waveform.
 
-Processing order:
+Processing order is DAC-input gain control, behavioral DAC, CW laser with
+linewidth, RIN, then the selected MZM or EML. `tx_dsp_output` must be the
+sample-rate waveform returned by `RunTxDsp(parameters.dsp)`.
 
-1. validate the unified parameters;
-2. call `RunTxDsp` for pattern generation, PAM4 mapping, upsampling, TxFIR,
-   and optional memoryless nonlinear compensation;
-3. apply either adaptive quantization-aware gain or the configured fixed gain;
-4. pass the scaled signal into `GenerateDacWaveform`;
-5. return only the reconstructed DAC output as `Vector{Float64}`.
-
-Laser, RIN, MZM, and EML functions remain independent device models. They can
-consume the returned DAC waveform in a later optical-transmitter stage without
-making the electrical transmitter return structure unnecessarily large.
+The function returns only the final `Vector{ComplexF64}` optical field. Its
+length equals `length(tx_dsp_output)` and `abs2.(field)` is optical power in
+watts. Call the lower-level DAC, laser, RIN, or modulator functions separately
+when an intermediate device waveform is required for debugging.
 """
-function RunImddTransmitter(
+function RunTxDevice(
+    tx_dsp_output::AbstractVector{<:Real},
     parameters::ImddTransmitterParameters,
-)::Vector{Float64}
+)::Vector{ComplexF64}
     ValidateTransmitterParameters(parameters)
+    isempty(tx_dsp_output) && throw(ArgumentError("tx_dsp_output must not be empty"))
+    all(isfinite, tx_dsp_output) ||
+        throw(ArgumentError("tx_dsp_output must contain only finite values"))
+
     dsp = parameters.dsp
     device = parameters.device
+    tx_dsp_values = Float64.(tx_dsp_output)
 
-    tx_dsp_output = RunTxDsp(dsp)
     tx_gain = if lowercase(strip(dsp.tx_gain_mode)) == "adaptive"
         CalculateOptimalTxGain(
-            tx_dsp_output,
+            tx_dsp_values,
             device.dac_resolution_bits;
             full_scale=device.dac_full_scale,
             search_span_db=dsp.tx_gain_search_span_db,
@@ -746,10 +746,9 @@ function RunImddTransmitter(
     else
         dsp.tx_fixed_gain
     end
-    dac_input_signal = tx_gain .* tx_dsp_output
+    dac_input_signal = tx_gain .* tx_dsp_values
     sample_rate_hz = dsp.symbol_rate_hz * dsp.samples_per_symbol
-    dac_rng = CreateNoiseRng(parameters, :dac)
-    return GenerateDacWaveform(
+    dac_output = GenerateDacWaveform(
         dac_input_signal;
         sample_rate_hz=sample_rate_hz,
         samples_per_symbol=dsp.samples_per_symbol,
@@ -759,6 +758,65 @@ function RunImddTransmitter(
         noise_rms=device.dac_noise_rms,
         bandwidth_hz=device.electrical_bandwidth_hz,
         filter_order=device.filter_order,
-        rng=dac_rng,
+        rng=CreateNoiseRng(parameters, :dac),
     )
+
+    laser_field = CwLaser(
+        length(dac_output),
+        sample_rate_hz,
+        device.laser_power_dbm,
+        device.laser_linewidth_hz,
+        parameters,
+    )
+    laser_with_rin = AddRin(
+        laser_field,
+        sample_rate_hz,
+        device.rin_db_hz,
+        parameters,
+    )
+
+    if lowercase(strip(device.modulator)) == "mzm"
+        return MzmModulate(
+            laser_with_rin,
+            dac_output,
+            device.drive_vpp,
+            device.vpi_v,
+            device.bias_phase_rad,
+            device.extinction_ratio_db,
+            device.chirp,
+        )
+    end
+    return EmlModulate(
+        laser_with_rin,
+        dac_output,
+        device.extinction_ratio_db,
+        device.chirp,
+    )
+end
+
+"""
+    RunImddTransmitter(parameters)
+
+Run one complete IMDD transmitter lane as a DSP section followed by a device
+section.
+
+Processing order:
+
+1. validate the unified parameters;
+2. call `RunTxDsp` for pattern generation, PAM4 mapping, upsampling, TxFIR,
+   and optional memoryless nonlinear compensation;
+3. pass the DSP waveform to `RunTxDevice` for gain, DAC, laser, RIN, and
+   MZM/EML processing;
+4. return only the final optical field as `Vector{ComplexF64}`.
+
+This is the primary whole-transmitter entry point. `RunTxDsp` and
+`RunTxDevice` remain public procedural stages for readable step-by-step
+debugging.
+"""
+function RunImddTransmitter(
+    parameters::ImddTransmitterParameters,
+)::Vector{ComplexF64}
+    ValidateTransmitterParameters(parameters)
+    tx_dsp_output = RunTxDsp(parameters.dsp)
+    return RunTxDevice(tx_dsp_output, parameters)
 end

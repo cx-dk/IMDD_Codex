@@ -97,12 +97,13 @@ julia --project=julia --startup-file=no julia/test/runtests.jl
 
 1. `RunTxDsp`：完成 pattern、PAM4 映射、零插值过采样、TxFIR 和可选的
    无记忆多项式非线性预补偿；
-2. `CalculateOptimalTxGain`：独立计算量化感知的 DAC 输入增益，在量化误差和
-   过载削顶之间自适应折中；
-3. `GenerateDacWaveform`：接收增益调整后的采样流，执行采样抖动、满量程裁剪、
-   均匀量化、DAC 输出噪声和重建低通；
-4. `RunImddTransmitter`：按上述顺序调用 Tx DSP、增益控制和 DAC，仅返回 DAC
-   输出向量。
+2. `RunTxDevice`：接收 DSP 输出，依次执行 DAC 前增益、DAC、CW 激光器、RIN
+   以及所选 MZM/EML，返回最终复数光场；
+3. `RunImddTransmitter`：整体入口，依次调用 `RunTxDsp` 和 `RunTxDevice`，返回
+   最终发射光场。
+
+`CalculateOptimalTxGain`、`GenerateDacWaveform`、`CwLaser`、`AddRin`、
+`MzmModulate` 和 `EmlModulate` 仍可单独调用，便于逐器件调试。
 
 TxFIR 抽头是过采样速率下的 sample-spaced 系数。空抽头向量表示使用
 `ones(samples_per_symbol)` 的默认矩形滤波器。DAC 默认为 8 bit、归一化
@@ -113,8 +114,12 @@ TxFIR 抽头是过采样速率下的 sample-spaced 系数。空抽头向量表�
 自适应模式以输入折算量化均方误差为代价函数，并同时考虑 DAC 削顶；固定模式
 直接采用 `tx_fixed_gain`，便于参数扫描和硬件标定。
 
-`CwLaser`、`AddRin`、`MzmModulate` 和 `EmlModulate` 保持为独立光器件函数，
-可在后续光发射链中接收 DAC 输出，但不增加电发端的返回结构。
+总入口的数据流为：
+
+```text
+parameters.dsp -> RunTxDsp -> DSP 采样波形
+parameters.device + DSP 采样波形 -> RunTxDevice -> 复数发射光场
+```
 
 ### 统一参数结构
 
@@ -143,8 +148,8 @@ include("julia/src/IMDD.jl")
 # 第一个普通函数定义并返回参数。
 parameters = DefineTransmitterParameters()
 
-# 返回值直接输入第二个函数。
-dac_output = RunImddTransmitter(parameters)
+# 返回值直接输入整体发射机函数。
+optical_field = RunImddTransmitter(parameters)
 ```
 
 也可以在两步之间临时修改参数，适合交互式调试：
@@ -156,27 +161,16 @@ parameters.dsp.tx_gain_mode = "fixed"
 parameters.dsp.tx_fixed_gain = 0.8
 parameters.device.dac_noise_rms = 0.001
 
-dac_output = RunImddTransmitter(parameters)
+optical_field = RunImddTransmitter(parameters)
 ```
 
 `CreateNoiseRng` 会从主种子派生 `:dac`、`:laser` 和 `:rin` 三个固定且相互独立的
 随机流。相同主种子能够严格复现波形，同时某个器件是否启用、消耗多少随机数都不会
-移动其他器件的随机序列。独立调用光器件模型时可以直接传统一参数：
+移动其他器件的随机序列。需要分别调试 DSP 和 Device 时：
 
 ```julia
-laser_field = CwLaser(
-    length(dac_output),
-    parameters.dsp.symbol_rate_hz * parameters.dsp.samples_per_symbol,
-    parameters.device.laser_power_dbm,
-    parameters.device.laser_linewidth_hz,
-    parameters,
-)
-laser_with_rin = AddRin(
-    laser_field,
-    parameters.dsp.symbol_rate_hz * parameters.dsp.samples_per_symbol,
-    parameters.device.rin_db_hz,
-    parameters,
-)
+tx_dsp_output = RunTxDsp(parameters.dsp)
+optical_field = RunTxDevice(tx_dsp_output, parameters)
 ```
 
 需要单独检查 Tx DSP 输出和自适应增益时：
@@ -215,7 +209,7 @@ julia --project=julia julia/bin/run_transmitter.jl `
 ## Include 调试方式
 
 `src/IMDD.jl` 是普通 include 入口，不创建命名空间。加载后可直接在 REPL 中调用
-`PatternBits`、`RunTxDsp`、`CalculateOptimalTxGain` 和
+`PatternBits`、`RunTxDsp`、`RunTxDevice`、`CalculateOptimalTxGain` 和
 `RunImddTransmitter`，也可以在这些函数内设置断点。
 
 PRBS 抽头、SSPRQ 分段和噪声流标签等实现数据均封装在查询函数或使用它们的函数
@@ -245,5 +239,5 @@ include("julia/src/IMDD.jl")
 ```julia
 include("julia/src/IMDDTransmitterSetup.jl")
 parameters = DefineTransmitterParameters()
-dac_output = RunImddTransmitter(parameters)
+optical_field = RunImddTransmitter(parameters)
 ```

@@ -130,7 +130,8 @@ and both members are mutable, so callers can edit only the desired field:
 - `noise_seed=20260811`: non-negative master seed shared by all noise models.
 - `dsp=ImddDspParameters()`: DSP configuration, listed before device
   configuration to match transmitter processing order.
-- `device=ImddDeviceParameters()`: DAC, laser, and modulator configuration.
+- `device=ImddDeviceParameters()`: DAC, laser, and modulator configuration
+  executed by `RunTxDevice` inside the whole transmitter.
 
 ```julia
 parameters = ImddTransmitterParameters()

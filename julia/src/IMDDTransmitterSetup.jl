@@ -7,12 +7,12 @@ function and return an `ImddTransmitterParameters` object.
 Edit the values in this function when configuring a simulation. Keeping the
 configuration in a function ensures that every call creates fresh parameter
 objects and coefficient vectors. The returned object can be passed directly
-to `ValidateTransmitterParameters`, `RunTxDsp`, or `RunImddTransmitter`.
+to `ValidateTransmitterParameters`, `RunTxDsp`, `RunTxDevice`, or
+`RunImddTransmitter`.
 
 The comments beside each field describe its unit, valid values, enable/bypass
-condition, and position in the processing chain. `RunImddTransmitter` currently
-returns the electrical DAC output only; laser and modulator fields configure
-the independent optical-device functions for a later optical stage.
+condition, and position in the processing chain. `RunImddTransmitter` executes
+both the DSP and device sections and returns the final complex optical field.
 
 # Returns
 
@@ -116,7 +116,7 @@ function DefineTransmitterParameters()::ImddTransmitterParameters
     # -------------------------------------------------------------------------
     device_parameters = ImddDeviceParameters(
         # ---------------------------------------------------------------------
-        # DAC / driver parameters used by RunImddTransmitter
+        # DAC / driver parameters used by RunTxDevice
         # ---------------------------------------------------------------------
         # Integer uniform-DAC resolution in bits, valid range 1:52. The model
         # has 2^dac_resolution_bits equally spaced levels including endpoints.
@@ -144,8 +144,7 @@ function DefineTransmitterParameters()::ImddTransmitterParameters
         filter_order=4,
 
         # ---------------------------------------------------------------------
-        # Laser parameters for the independent CwLaser and AddRin functions
-        # (not consumed by the current DAC-only RunImddTransmitter output).
+        # Laser parameters used by RunTxDevice through CwLaser and AddRin.
         # ---------------------------------------------------------------------
         # Finite positive optical carrier wavelength in nanometres.
         wavelength_nm=1311.0,
@@ -162,8 +161,7 @@ function DefineTransmitterParameters()::ImddTransmitterParameters
         rin_db_hz=-145.0,
 
         # ---------------------------------------------------------------------
-        # Optical modulator parameters for independent MZM/EML functions
-        # (not consumed by the current DAC-only RunImddTransmitter output).
+        # Optical modulator parameters used by RunTxDevice.
         # ---------------------------------------------------------------------
         # Supported model selector: "mzm" or "eml".
         modulator="mzm",
